@@ -2,10 +2,9 @@
 
 START_TAG = "<START>"
 STOP_TAG = "<STOP>"
-EMBEDDING_DIM = 100
-HIDDEN_DIM = 4
+EMBEDDING_DIM = 84
+HIDDEN_DIM = 128
 
-sent_len = 64
-vocab_size = 3000
-sent_pad = 10    # 滑动窗口签后填充的词语个数，用原文词语填充
+total_epoch = 300    # 总epoch数
+batch_size = 16
 

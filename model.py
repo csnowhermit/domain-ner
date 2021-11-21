@@ -10,13 +10,19 @@ torch.manual_seed(1)
 
 class BiLSTM_CRF(nn.Module):
 
+    '''
+        :param vocab_size 词的个数
+        :param tag_to_ix 标签和下标的对应关系
+        :param embedding_dim embedding成多少维
+        :param hidden_dim 隐藏维度
+    '''
     def __init__(self, vocab_size, tag_to_ix, embedding_dim, hidden_dim):
         super(BiLSTM_CRF, self).__init__()
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
         self.vocab_size = vocab_size
         self.tag_to_ix = tag_to_ix
-        self.tagset_size = len(tag_to_ix)
+        self.tagset_size = len(tag_to_ix)    # 总的类别数量
 
         self.word_embeds = nn.Embedding(vocab_size, embedding_dim)
         self.lstm = nn.LSTM(embedding_dim, hidden_dim // 2,
@@ -30,10 +36,10 @@ class BiLSTM_CRF(nn.Module):
         self.transitions = nn.Parameter(
             torch.randn(self.tagset_size, self.tagset_size))
 
-        # These two statements enforce the constraint that we never transfer
-        # to the start tag and we never transfer from the stop tag
-        self.transitions.data[tag_to_ix[config.START_TAG], :] = -10000
-        self.transitions.data[:, tag_to_ix[config.STOP_TAG]] = -10000
+        # # These two statements enforce the constraint that we never transfer
+        # # to the start tag and we never transfer from the stop tag
+        # self.transitions.data[tag_to_ix[config.START_TAG], :] = -10000
+        # self.transitions.data[:, tag_to_ix[config.STOP_TAG]] = -10000
 
         self.hidden = self.init_hidden()
 

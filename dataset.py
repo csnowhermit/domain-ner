@@ -230,14 +230,20 @@ class Documents(object):
             doc_ids = self.doc_ids[key]
             return Documents(self.data_dir, doc_ids=doc_ids)
 
-
+'''
+    滑动窗口取词
+'''
 class SentenceExtractor(object):
+    '''
+    :param window_size 滑动窗口大小
+    :param pad_size 签后各填充大小，用原文文本填充
+    '''
     def __init__(self, window_size=50, pad_size=10):
         self.window_size = window_size
         self.pad_size = pad_size
 
     def extract_doc(self, doc):
-        num_sents = math.ceil(len(doc.text) / self.window_size)
+        num_sents = math.ceil(len(doc.text) / self.window_size)    # 该文档总句子数
         doc = doc.pad(pad_left=self.pad_size, pad_right=num_sents * self.window_size - len(doc.text) + self.pad_size)
         sents = []
         for cur_idx in range(self.pad_size, len(doc.text) - self.pad_size, self.window_size):
@@ -343,3 +349,4 @@ def make_predictions(preds, dataset, sent_pad, docs, idx2ent):
         pred_docs[doc_id] = doc
 
     return pred_docs
+

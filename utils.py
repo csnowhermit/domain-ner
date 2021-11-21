@@ -5,7 +5,12 @@ def argmax(vec):
     _, idx = torch.max(vec, 1)
     return idx.item()
 
-
+'''
+    准备输入的序列
+    :param seq 原文文本
+    :param to_ix 原文中字和下标的对应关系
+    :return 返回原文文本对应的下标序列，Tensor格式
+'''
 def prepare_sequence(seq, to_ix):
     idxs = [to_ix[w] for w in seq]
     return torch.tensor(idxs, dtype=torch.long)

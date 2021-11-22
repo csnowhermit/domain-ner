@@ -1,155 +1,175 @@
 import torch
-import torch.autograd as autograd
 import torch.nn as nn
-import torch.optim as optim
 
-import utils
 import config
+import dataset
 
-torch.manual_seed(1)
+def log_sum_exp(vec):
+    max_score = torch.max(vec, 0)[0].unsqueeze(0)
+    max_score_broadcast = max_score.expand(vec.size(1), vec.size(1))
+    result = max_score + torch.log(torch.sum(torch.exp(vec - max_score_broadcast), 0)).unsqueeze(0)
+    return result.squeeze(1)
 
 class BiLSTM_CRF(nn.Module):
-
-    '''
-        :param vocab_size 词的个数
-        :param tag_to_ix 标签和下标的对应关系
-        :param embedding_dim embedding成多少维
-        :param hidden_dim 隐藏维度
-    '''
-    def __init__(self, vocab_size, tag_to_ix, embedding_dim, hidden_dim):
+    def __init__(self, entities):
         super(BiLSTM_CRF, self).__init__()
-        self.embedding_dim = embedding_dim
-        self.hidden_dim = hidden_dim
-        self.vocab_size = vocab_size
-        self.tag_to_ix = tag_to_ix
-        self.tagset_size = len(tag_to_ix)    # 总的类别数量
 
-        self.word_embeds = nn.Embedding(vocab_size, embedding_dim)
-        self.lstm = nn.LSTM(embedding_dim, hidden_dim // 2,
-                            num_layers=1, bidirectional=True)
+        # 加上开始结束符号
+        self.entities = entities
+        self.entities.append(config.START_TAG)
+        self.entities.append(config.STOP_TAG)
 
-        # Maps the output of the LSTM into tag space.
-        self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size)
+        self.tag_size = len(self.entities)
+        self.tag_map = dict(zip(self.entities, range(0, len(self.entities))))  # {标签：id}，id下标从0开始
 
-        # Matrix of transition parameters.  Entry i,j is the score of
-        # transitioning *to* i *from* j.
-        self.transitions = nn.Parameter(
-            torch.randn(self.tagset_size, self.tagset_size))
+        self.word_embedding = nn.Embedding(config.vocab_size, config.embedding_dim)
+        self.lstm = nn.LSTM(config.embedding_dim, config.hidden_dim // 2,
+                            num_layers=1, bidirectional=True, batch_first=True)
 
-        # # These two statements enforce the constraint that we never transfer
-        # # to the start tag and we never transfer from the stop tag
-        # self.transitions.data[tag_to_ix[config.START_TAG], :] = -10000
-        # self.transitions.data[:, tag_to_ix[config.STOP_TAG]] = -10000
+        self.CRF = nn.Parameter(torch.randn(self.tag_size, self.tag_size))
 
+        self.CRF.data[:, self.tag_map[config.START_TAG]] = -1000
+        self.CRF.data[self.tag_map[config.STOP_TAG], :] = -1000
+
+        self.hidden2tag = nn.Linear(config.hidden_dim, self.tag_size)
         self.hidden = self.init_hidden()
 
     def init_hidden(self):
-        return (torch.randn(2, 1, self.hidden_dim // 2),
-                torch.randn(2, 1, self.hidden_dim // 2))
+        return (torch.randn(2, config.batch_size, config.hidden_dim // 2),
+                torch.randn(2, config.batch_size, config.hidden_dim // 2))
 
-    def _forward_alg(self, feats):
-        # Do the forward algorithm to compute the partition function
-        init_alphas = torch.full((1, self.tagset_size), -10000.)
-        # START_TAG has all of the score.
-        init_alphas[0][self.tag_to_ix[config.START_TAG]] = 0.
-
-        # Wrap in a variable so that we will get automatic backprop
-        forward_var = init_alphas
-
-        # Iterate through the sentence
-        for feat in feats:
-            alphas_t = []  # The forward tensors at this timestep
-            for next_tag in range(self.tagset_size):
-                # broadcast the emission score: it is the same regardless of
-                # the previous tag
-                emit_score = feat[next_tag].view(
-                    1, -1).expand(1, self.tagset_size)
-                # the ith entry of trans_score is the score of transitioning to
-                # next_tag from i
-                trans_score = self.transitions[next_tag].view(1, -1)
-                # The ith entry of next_tag_var is the value for the
-                # edge (i -> next_tag) before we do log-sum-exp
-                next_tag_var = forward_var + trans_score + emit_score
-                # The forward variable for this tag is log-sum-exp of all the
-                # scores.
-                alphas_t.append(utils.log_sum_exp(next_tag_var).view(1))
-            forward_var = torch.cat(alphas_t).view(1, -1)
-        terminal_var = forward_var + self.transitions[self.tag_to_ix[config.STOP_TAG]]
-        alpha = utils.log_sum_exp(terminal_var)
-        return alpha
-
-    def _get_lstm_features(self, sentence):
+    def __get_lstm_features(self, sentence):
         self.hidden = self.init_hidden()
-        embeds = self.word_embeds(sentence).view(len(sentence), 1, -1)
-        lstm_out, self.hidden = self.lstm(embeds, self.hidden)
-        lstm_out = lstm_out.view(len(sentence), self.hidden_dim)
-        lstm_feats = self.hidden2tag(lstm_out)
-        return lstm_feats
+        length = sentence.shape[1]
+        embeddings = self.word_embeddings(sentence).view(config.batch_size, length, config.embedding_dim)  # [1, 7, 100]
 
-    def _score_sentence(self, feats, tags):
+        lstm_out, self.hidden = self.lstm(embeddings, self.hidden)  # lstm_out [1, 17, 128], hidden []
+        lstm_out = lstm_out.view(config.batch_size, -1, config.hidden_dim)
+        logits = self.hidden2tag(lstm_out)
+        return logits
+
+    def real_path_score_(self, feats, tags):
         # Gives the score of a provided tag sequence
         score = torch.zeros(1)
-        tags = torch.cat([torch.tensor([self.tag_to_ix[config.START_TAG]], dtype=torch.long), tags])
+        tags = torch.cat([torch.tensor([self.tag_map[config.START_TAG]], dtype=torch.long), tags])
         for i, feat in enumerate(feats):
             score = score + \
-                self.transitions[tags[i + 1], tags[i]] + feat[tags[i + 1]]
-        score = score + self.transitions[self.tag_to_ix[config.STOP_TAG], tags[-1]]
+                    self.transitions[tags[i], tags[i + 1]] + feat[tags[i + 1]]
+        score = score + self.transitions[tags[-1], self.tag_map[config.STOP_TAG]]
         return score
 
-    def _viterbi_decode(self, feats):
+    '''
+        caculate real path score
+        :params logits -> [len_sent * tag_size]
+        :params label  -> [1 * len_sent]
+        
+        Score = Emission_Score + Transition_Score
+        Emission_Score = logits(0, label[START]) + logits(1, label[1]) + ... + logits(n, label[STOP])
+        Transition_Score = Trans(label[START], label[1]) + Trans(label[1], label[2]) + ... + Trans(label[n-1], label[STOP])
+    '''
+    def real_path_score(self, logits, label):
+        score = torch.zeros(1)
+        label = torch.cat([torch.tensor([self.tag_map[config.START_TAG]], dtype=torch.long), label])
+        for index, logit in enumerate(logits):
+            emission_score = logit[label[index + 1]]
+            transition_score = self.transitions[label[index], label[index + 1]]
+            score += emission_score + transition_score
+        score += self.transitions[label[-1], self.tag_map[config.STOP_TAG]]
+        return score
+
+    """
+        caculate total score
+        
+        :params logits -> [len_sent * tag_size]
+        :params label  -> [1 * tag_size]
+        
+        SCORE = log(e^S1 + e^S2 + ... + e^SN)
+    """
+    def total_score(self, logits, label):
+        obs = []
+        previous = torch.full((1, self.tag_size), 0)
+        for index in range(len(logits)):
+            previous = previous.expand(self.tag_size, self.tag_size).t()
+            obs = logits[index].view(1, -1).expand(self.tag_size, self.tag_size)
+            scores = previous + obs + self.transitions
+            previous = log_sum_exp(scores)
+        previous = previous + self.transitions[:, self.tag_map[config.STOP_TAG]]
+        # caculate total_scores
+        total_scores = log_sum_exp(previous.t())[0]
+        return total_scores
+
+    def neg_log_likelihood(self, sentences, tags, length):
+        self.batch_size = sentences.size(0)
+        logits = self.__get_lstm_features(sentences)
+        real_path_score = torch.zeros(1)
+        total_score = torch.zeros(1)
+        for logit, tag, leng in zip(logits, tags, length):
+            logit = logit[:leng]
+            tag = tag[:leng]
+            real_path_score += self.real_path_score(logit, tag)
+            total_score += self.total_score(logit, tag)
+        # print("total score ", total_score)
+        # print("real score ", real_path_score)
+        return total_score - real_path_score
+
+    def forward(self, sentences, lengths=None):
+        """
+        :params sentences sentences to predict
+        :params lengths represent the ture length of sentence, the default is sentences.size(-1)
+        """
+        sentences = torch.tensor(sentences, dtype=torch.long)
+        if not lengths:
+            lengths = [i.size(-1) for i in sentences]
+        self.batch_size = sentences.size(0)
+        logits = self.__get_lstm_features(sentences)
+        scores = []
+        paths = []
+        for logit, leng in zip(logits, lengths):
+            logit = logit[:leng]
+            score, path = self.__viterbi_decode(logit)
+            scores.append(score)
+            paths.append(path)
+        return scores, paths
+
+    def __viterbi_decode(self, logits):
         backpointers = []
+        trellis = torch.zeros(logits.size())
+        backpointers = torch.zeros(logits.size(), dtype=torch.long)
 
-        # Initialize the viterbi variables in log space
-        init_vvars = torch.full((1, self.tagset_size), -10000.)
-        init_vvars[0][self.tag_to_ix[config.START_TAG]] = 0
+        trellis[0] = logits[0]
+        for t in range(1, len(logits)):
+            v = trellis[t - 1].unsqueeze(1).expand_as(self.transitions) + self.transitions
+            trellis[t] = logits[t] + torch.max(v, 0)[0]
+            backpointers[t] = torch.max(v, 0)[1]
+        viterbi = [torch.max(trellis[-1], -1)[1].cpu().tolist()]
+        backpointers = backpointers.numpy()
+        for bp in reversed(backpointers[1:]):
+            viterbi.append(bp[viterbi[-1]])
+        viterbi.reverse()
 
-        # forward_var at step i holds the viterbi variables for step i-1
-        forward_var = init_vvars
-        for feat in feats:
-            bptrs_t = []  # holds the backpointers for this step
-            viterbivars_t = []  # holds the viterbi variables for this step
+        viterbi_score = torch.max(trellis[-1], 0)[0].cpu().tolist()
+        return viterbi_score, viterbi
 
-            for next_tag in range(self.tagset_size):
-                # next_tag_var[i] holds the viterbi variable for tag i at the
-                # previous step, plus the score of transitioning
-                # from tag i to next_tag.
-                # We don't include the emission scores here because the max
-                # does not depend on them (we add them in below)
-                next_tag_var = forward_var + self.transitions[next_tag]
-                best_tag_id = utils.argmax(next_tag_var)
-                bptrs_t.append(best_tag_id)
-                viterbivars_t.append(next_tag_var[0][best_tag_id].view(1))
-            # Now add in the emission scores, and assign forward_var to the set
-            # of viterbi variables we just computed
-            forward_var = (torch.cat(viterbivars_t) + feat).view(1, -1)
-            backpointers.append(bptrs_t)
+    def __viterbi_decode_v1(self, logits):
+        init_prob = 1.0
+        trans_prob = self.transitions.t()
+        prev_prob = init_prob
+        path = []
+        for index, logit in enumerate(logits):
+            if index == 0:
+                obs_prob = logit * prev_prob
+                prev_prob = obs_prob
+                prev_score, max_path = torch.max(prev_prob, -1)
+                path.append(max_path.cpu().tolist())
+                continue
+            obs_prob = (prev_prob * trans_prob).t() * logit
+            max_prob, _ = torch.max(obs_prob, 1)
+            _, final_max_index = torch.max(max_prob, -1)
+            prev_prob = obs_prob[final_max_index]
+            prev_score, max_path = torch.max(prev_prob, -1)
+            path.append(max_path.cpu().tolist())
+        return prev_score.cpu().tolist(), path
 
-        # Transition to STOP_TAG
-        terminal_var = forward_var + self.transitions[self.tag_to_ix[config.STOP_TAG]]
-        best_tag_id = utils.argmax(terminal_var)
-        path_score = terminal_var[0][best_tag_id]
-
-        # Follow the back pointers to decode the best path.
-        best_path = [best_tag_id]
-        for bptrs_t in reversed(backpointers):
-            best_tag_id = bptrs_t[best_tag_id]
-            best_path.append(best_tag_id)
-        # Pop off the start tag (we dont want to return that to the caller)
-        start = best_path.pop()
-        assert start == self.tag_to_ix[config.START_TAG]  # Sanity check
-        best_path.reverse()
-        return path_score, best_path
-
-    def neg_log_likelihood(self, sentence, tags):
-        feats = self._get_lstm_features(sentence)
-        forward_score = self._forward_alg(feats)
-        gold_score = self._score_sentence(feats, tags)
-        return forward_score - gold_score
-
-    def forward(self, sentence):  # dont confuse this with _forward_alg above.
-        # Get the emission scores from the BiLSTM
-        lstm_feats = self._get_lstm_features(sentence)
-
-        # Find the best path, given the features.
-        score, tag_seq = self._viterbi_decode(lstm_feats)
-        return score, tag_seq
+if __name__ == '__main__':
+    model = BiLSTM_CRF(dataset.ENTITIES)
+    print(model)

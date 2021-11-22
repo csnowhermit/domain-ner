@@ -4,6 +4,11 @@ import numpy as np
 from collections import Counter, defaultdict
 from itertools import groupby
 from spacy import displacy
+from sklearn.model_selection import ShuffleSplit
+from gensim.models import Word2Vec
+from torch.utils.data import DataLoader
+
+import config
 
 ENTITIES = [
     "Amount", "Anatomy", "Disease", "Drug",
@@ -350,3 +355,51 @@ def make_predictions(preds, dataset, sent_pad, docs, idx2ent):
 
     return pred_docs
 
+def getDataLoader():
+    # 数据预处理
+    data_dir = './data/'
+    ent2idx = dict(zip(ENTITIES, range(0, len(ENTITIES))))  # {标签：id}
+    idx2ent = dict([(v, k) for k, v in ent2idx.items()])  # {id: 标签}
+
+    docs = Documents(data_dir=data_dir)
+    rs = ShuffleSplit(n_splits=1, test_size=20, random_state=2018)
+    train_doc_ids, test_doc_ids = next(rs.split(docs))  # 切分训练集和测试集
+    train_docs, test_docs = docs[train_doc_ids], docs[test_doc_ids]
+
+    # 做滑动窗口取词
+    num_cates = max(ent2idx.values()) + 1  # 15+1种类别，1为什么都不是
+
+    sent_extrator = SentenceExtractor(window_size=config.sent_len, pad_size=config.sent_pad)
+    train_sents = sent_extrator(train_docs)
+    test_sents = sent_extrator(test_docs)
+
+    train_data = Dataset(train_sents, cate2idx=ent2idx)
+    train_data.build_vocab_dict(vocab_size=config.vocab_size)
+
+    test_data = Dataset(test_sents, word2idx=train_data.word2idx, cate2idx=ent2idx)
+    vocab_size = len(train_data.word2idx)
+
+    # 做词向量
+    w2v_train_sents = []
+    for doc in docs:
+        w2v_train_sents.append(list(doc.text))
+    w2v_model = Word2Vec(w2v_train_sents)  # 对训练数据集做词向量
+
+    w2v_embeddings = np.zeros((vocab_size, config.emb_size))  # [3000, 100]
+    for char, char_idx in train_data.word2idx.items():
+        if char in w2v_model.wv:
+            w2v_embeddings[char_idx] = w2v_model.wv[char]
+
+    # # 拆分数据与标签
+    # train_X, train_y = train_data[:]
+    # print(type(train_data))
+    # print('train_X.shape', train_X.shape)
+    # print('train_y.shape', train_y.shape)
+    #
+    # test_X, test_y = test_data[:]
+    # print(type(test_data))
+    # print('test_X.shape', test_X.shape)
+    # print('test_y.shape', test_y.shape)
+
+    train_dataloader = DataLoader(dataset=train_data, batch_size=config.batch_size, shuffle=True)
+    return train_dataloader

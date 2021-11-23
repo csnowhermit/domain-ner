@@ -72,7 +72,7 @@ if __name__ == '__main__':
         curr_eval_loss = float(sum(eval_losses) / total_test)
         if curr_eval_loss < eval_loss:
             eval_loss = curr_eval_loss
-            torch.save(model.state_dict(), os.path.join(config.model_path, "domain-ner-%.3f-%.3f.pth" % (curr_train_loss, curr_eval_loss)))
+            torch.save(model.state_dict(), os.path.join(config.model_path, "domain-ner-%d-%.3f-%.3f.pth" % (epoch, curr_train_loss, curr_eval_loss)))
 
         info = "Epoch: {}\ttrain_loss: {}\teval_loss: {}".format(epoch, train_loss, eval_loss)
         m_progress.set_description(info)

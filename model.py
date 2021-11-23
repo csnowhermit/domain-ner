@@ -16,6 +16,7 @@ class BiLSTM_CRF(nn.Module):
 
         # 加上开始结束符号
         self.entities = entities
+        self.tags = entities    # 保存一份，分别计算每种类别的指标时用
         self.entities.append(config.START_TAG)
         self.entities.append(config.STOP_TAG)
 
@@ -40,11 +41,12 @@ class BiLSTM_CRF(nn.Module):
 
     def __get_lstm_features(self, sentence):
         self.hidden = self.init_hidden()
-        length = sentence.shape[1]
-        embeddings = self.word_embeddings(sentence).view(config.batch_size, length, config.embedding_dim)  # [1, 7, 100]
+        curr_batch_size = sentence.shape[0]    # 当前batch实际读到的句子数
+        length = sentence.shape[1]    # 当前batch中句子的长度
+        embeddings = self.word_embedding(sentence).view(curr_batch_size, length, config.embedding_dim)  # [batch_size, 7, 100]
 
-        lstm_out, self.hidden = self.lstm(embeddings, self.hidden)  # lstm_out [1, 17, 128], hidden []
-        lstm_out = lstm_out.view(config.batch_size, -1, config.hidden_dim)
+        lstm_out, self.hidden = self.lstm(embeddings, self.hidden)  # lstm_out [batch_size, 17, 128], hidden []
+        lstm_out = lstm_out.view(curr_batch_size, -1, config.hidden_dim)
         logits = self.hidden2tag(lstm_out)
         return logits
 
@@ -53,9 +55,8 @@ class BiLSTM_CRF(nn.Module):
         score = torch.zeros(1)
         tags = torch.cat([torch.tensor([self.tag_map[config.START_TAG]], dtype=torch.long), tags])
         for i, feat in enumerate(feats):
-            score = score + \
-                    self.transitions[tags[i], tags[i + 1]] + feat[tags[i + 1]]
-        score = score + self.transitions[tags[-1], self.tag_map[config.STOP_TAG]]
+            score = score + self.CRF[tags[i], tags[i + 1]] + feat[tags[i + 1]]
+        score = score + self.CRF[tags[-1], self.tag_map[config.STOP_TAG]]
         return score
 
     '''
@@ -72,9 +73,9 @@ class BiLSTM_CRF(nn.Module):
         label = torch.cat([torch.tensor([self.tag_map[config.START_TAG]], dtype=torch.long), label])
         for index, logit in enumerate(logits):
             emission_score = logit[label[index + 1]]
-            transition_score = self.transitions[label[index], label[index + 1]]
+            transition_score = self.CRF[label[index], label[index + 1]]
             score += emission_score + transition_score
-        score += self.transitions[label[-1], self.tag_map[config.STOP_TAG]]
+        score += self.CRF[label[-1], self.tag_map[config.STOP_TAG]]
         return score
 
     """
@@ -91,13 +92,20 @@ class BiLSTM_CRF(nn.Module):
         for index in range(len(logits)):
             previous = previous.expand(self.tag_size, self.tag_size).t()
             obs = logits[index].view(1, -1).expand(self.tag_size, self.tag_size)
-            scores = previous + obs + self.transitions
+            scores = previous + obs + self.CRF
             previous = log_sum_exp(scores)
-        previous = previous + self.transitions[:, self.tag_map[config.STOP_TAG]]
+        previous = previous + self.CRF[:, self.tag_map[config.STOP_TAG]]
         # caculate total_scores
         total_scores = log_sum_exp(previous.t())[0]
         return total_scores
 
+    '''
+        训练时前向传播用这个
+        :param sentences 训练数据x：([下标序列], [下标序列], [下标序列]...)
+        :param tags 训练标签y：([id序列], [id序列], [id序列]...)
+        :param length 训练数据中每句话的长度：length(句子1长度, 句子2长度, 句子3长度...)
+        :return 返回loss
+    '''
     def neg_log_likelihood(self, sentences, tags, length):
         self.batch_size = sentences.size(0)
         logits = self.__get_lstm_features(sentences)
@@ -112,11 +120,12 @@ class BiLSTM_CRF(nn.Module):
         # print("real score ", real_path_score)
         return total_score - real_path_score
 
-    def forward(self, sentences, lengths=None):
-        """
+    """
+        推理时的前向传播
         :params sentences sentences to predict
         :params lengths represent the ture length of sentence, the default is sentences.size(-1)
-        """
+    """
+    def forward(self, sentences, lengths=None):
         sentences = torch.tensor(sentences, dtype=torch.long)
         if not lengths:
             lengths = [i.size(-1) for i in sentences]
@@ -138,7 +147,7 @@ class BiLSTM_CRF(nn.Module):
 
         trellis[0] = logits[0]
         for t in range(1, len(logits)):
-            v = trellis[t - 1].unsqueeze(1).expand_as(self.transitions) + self.transitions
+            v = trellis[t - 1].unsqueeze(1).expand_as(self.CRF) + self.CRF
             trellis[t] = logits[t] + torch.max(v, 0)[0]
             backpointers[t] = torch.max(v, 0)[1]
         viterbi = [torch.max(trellis[-1], -1)[1].cpu().tolist()]
@@ -152,7 +161,7 @@ class BiLSTM_CRF(nn.Module):
 
     def __viterbi_decode_v1(self, logits):
         init_prob = 1.0
-        trans_prob = self.transitions.t()
+        trans_prob = self.CRF.t()
         prev_prob = init_prob
         path = []
         for index, logit in enumerate(logits):

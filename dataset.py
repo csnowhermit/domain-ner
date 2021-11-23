@@ -277,7 +277,7 @@ class Dataset(object):
         self.word2idx = word2idx
         self.cate2idx = cate2idx
 
-    def build_vocab_dict(self, vocab_size=2000):
+    def build_vocab_dict(self, vocab_size=3000):
         counter = Counter()
         for sent in self.sentences:
             for char in sent.text:
@@ -291,6 +291,7 @@ class Dataset(object):
         for char, _ in counter.most_common(num_most_common):
             word2idx[char] = word2idx.get(char, len(word2idx))
         self.word2idx = word2idx
+        word2idx_persist(self.word2idx)    # 单字和序号的对应持久化
 
     def __len__(self):
         return len(self.sentences)
@@ -362,7 +363,7 @@ def getDataLoader():
     idx2ent = dict([(v, k) for k, v in ent2idx.items()])  # {id: 标签}
 
     docs = Documents(data_dir=data_dir)
-    rs = ShuffleSplit(n_splits=1, test_size=20, random_state=2018)
+    rs = ShuffleSplit(n_splits=1, test_size=0.1, random_state=2018)
     train_doc_ids, test_doc_ids = next(rs.split(docs))  # 切分训练集和测试集
     train_docs, test_docs = docs[train_doc_ids], docs[test_doc_ids]
 
@@ -402,4 +403,13 @@ def getDataLoader():
     # print('test_y.shape', test_y.shape)
 
     train_dataloader = DataLoader(dataset=train_data, batch_size=config.batch_size, shuffle=True)
-    return train_dataloader
+    test_dataloader = DataLoader(dataset=test_data, batch_size=config.batch_size, shuffle=True)
+    return train_dataloader, test_dataloader
+
+'''
+    word2idx的持久化
+'''
+def word2idx_persist(word2idx):
+    with open(config.word2idx_path, 'w', encoding='utf-8') as f:
+        f.write(str(word2idx))
+        print("word2idx persist successed!")

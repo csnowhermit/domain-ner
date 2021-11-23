@@ -5,6 +5,8 @@ START_TAG = "<START>"
 STOP_TAG = "<STOP>"
 embedding_dim = 200
 hidden_dim = 200
+model_path = "./checkpoint/"
+word2idx_path = "./word2idx.json"    # 单字和序号的对应关系
 
 # 数据预处理配置
 sent_len = 64

@@ -291,7 +291,8 @@ class Dataset(object):
         for char, _ in counter.most_common(num_most_common):
             word2idx[char] = word2idx.get(char, len(word2idx))
         self.word2idx = word2idx
-        word2idx_persist(self.word2idx)    # 单字和序号的对应持久化
+        if config.update_word2idx is True:    # 配置文件中指定需要更新时才更新
+            word2idx_persist(self.word2idx)    # 单字和序号的对应持久化
 
     def __len__(self):
         return len(self.sentences)
@@ -415,3 +416,4 @@ def word2idx_persist(word2idx):
     with open(config.word2idx_path, 'w', encoding='utf-8') as f:
         f.write(str(word2idx))
         print("word2idx persist successed!")
+

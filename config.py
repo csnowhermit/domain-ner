@@ -20,5 +20,5 @@ seq_len = sent_len + 2 * sent_pad    # 每个句子的长度
 
 total_epoch = 300    # 总epoch数
 batch_size = 16
-
+update_word2idx = False    # 是否需要更新word2idx.json文件
 

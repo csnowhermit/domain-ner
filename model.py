@@ -26,7 +26,7 @@ class BiLSTM_CRF(nn.Module):
 
         self.word_embedding = nn.Embedding(config.vocab_size, config.embedding_dim)
         self.lstm = nn.LSTM(config.embedding_dim, config.hidden_dim // 2,
-                            num_layers=1, bidirectional=True, batch_first=True)
+                            num_layers=config.num_layers, bidirectional=True, batch_first=True)
 
         self.CRF = nn.Parameter(torch.randn(self.tag_size, self.tag_size))
 
@@ -37,8 +37,8 @@ class BiLSTM_CRF(nn.Module):
         self.hidden = self.init_hidden()
 
     def init_hidden(self):
-        return (torch.randn(2, config.batch_size, config.hidden_dim // 2),
-                torch.randn(2, config.batch_size, config.hidden_dim // 2))
+        return (torch.randn(2 * config.num_layers, config.batch_size, config.hidden_dim // 2),
+                torch.randn(2 * config.num_layers, config.batch_size, config.hidden_dim // 2))
 
     def __get_lstm_features(self, sentence):
         self.hidden = self.init_hidden()

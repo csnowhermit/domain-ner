@@ -5,7 +5,7 @@ START_TAG = "<START>"
 STOP_TAG = "<STOP>"
 embedding_dim = 200
 hidden_dim = 200
-num_layers = 1    # 隐藏层的个数
+num_layers = 1    # LSTM的层数
 model_path = "./checkpoint/"
 word2idx_path = "./word2idx.json"    # 单字和序号的对应关系
 

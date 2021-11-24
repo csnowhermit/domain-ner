@@ -52,13 +52,10 @@ if __name__ == '__main__':
         # 开始eval：对于验证集，算所有的平均损失
         model.eval()
         eval_losses = []
-        total_test = 0
         for i, test_batch in enumerate(test_dataloader):
             x, y = test_batch[:]  # x [batch_size, 1, seq_len], y [batch_size, 1, seq_len, 1]
             x = x.detach().cpu().numpy().reshape(-1, config.seq_len)
             y = y.detach().cpu().numpy().reshape(-1, config.seq_len)
-
-            total_test += x.shape[0]    # 统计已eval的实际数据量
 
             # 按训练数据的格式要求做
             length = torch.tensor(tuple(torch.full([x.shape[0]], x.shape[1])), dtype=torch.long)
@@ -69,7 +66,7 @@ if __name__ == '__main__':
             eval_losses.append(loss.cpu().tolist()[0])
 
         # 算验证集的的平均损失
-        curr_eval_loss = float(sum(eval_losses) / total_test)
+        curr_eval_loss = float(sum(eval_losses) / len(eval_losses))
         if curr_eval_loss < eval_loss:
             eval_loss = curr_eval_loss
             torch.save(model.state_dict(), os.path.join(config.model_path, "domain-ner-%d-%.3f-%.3f.pth" % (epoch, curr_train_loss, curr_eval_loss)))

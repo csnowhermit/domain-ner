@@ -22,6 +22,7 @@ class BiLSTM_CRF(nn.Module):
 
         self.tag_size = len(self.entities)
         self.tag_map = dict(zip(self.entities, range(0, len(self.entities))))  # {标签：id}，id下标从0开始
+        self.idx2tag = dict([(v, k) for k, v in self.tag_map.items()])  # {id: 标签}
 
         self.word_embedding = nn.Embedding(config.vocab_size, config.embedding_dim)
         self.lstm = nn.LSTM(config.embedding_dim, config.hidden_dim // 2,

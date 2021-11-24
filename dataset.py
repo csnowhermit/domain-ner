@@ -403,8 +403,9 @@ def getDataLoader():
     # print('test_y.shape', test_y.shape)
 
     # 构建DataLoader时使用参数 drop_last=True（默认为False），避免因batch_size不能被整除而报错：RuntimeError: Expected hidden[0] size (2, 6, 100), got [2, 16, 100]
-    train_dataloader = DataLoader(dataset=train_data, batch_size=config.batch_size, shuffle=True, drop_last=True)
-    test_dataloader = DataLoader(dataset=test_data, batch_size=config.batch_size, shuffle=True, drop_last=True)
+    # 这里调整为动态根据实际读到的batch_size确定hidden层，不需要添加drop_last=True了
+    train_dataloader = DataLoader(dataset=train_data, batch_size=config.batch_size, shuffle=True)
+    test_dataloader = DataLoader(dataset=test_data, batch_size=config.batch_size, shuffle=True)
     return train_dataloader, test_dataloader
 
 '''

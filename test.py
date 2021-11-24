@@ -30,6 +30,7 @@ if __name__ == '__main__':
     # convert to tensor
     sentences = torch.tensor(input_vec).view(1, -1)
     _, paths = model(sentences)    # paths [句子条数，每个句子单字的类别]
+    print("NER origin result:", paths[0])
 
     format_result = utils.ner_post_process(input_str, paths[0], model.idx2tag)
     print("NER final result: ", format_result)

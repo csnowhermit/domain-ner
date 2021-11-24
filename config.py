@@ -8,6 +8,7 @@ hidden_dim = 200
 num_layers = 1    # LSTM的层数
 model_path = "./checkpoint/"
 word2idx_path = "./word2idx.json"    # 单字和序号的对应关系
+mode = "train"    # 模型的模式：train、test
 
 # 数据预处理配置
 sent_len = 64

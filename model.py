@@ -19,6 +19,12 @@ class BiLSTM_CRF(nn.Module):
         self.tags = entities    # 保存一份，分别计算每种类别的指标时用
         self.entities.append(config.START_TAG)
         self.entities.append(config.STOP_TAG)
+        if config.mode == "train":
+            self.this_batch_size = config.batch_size
+        elif config.mode == "test":
+            self.this_batch_size = 1
+        else:
+            raise RuntimeError("Unexpected model mode, Please use in [train, test]")
 
         self.tag_size = len(self.entities)
         self.tag_map = dict(zip(self.entities, range(0, len(self.entities))))  # {标签：id}，id下标从0开始
@@ -34,15 +40,20 @@ class BiLSTM_CRF(nn.Module):
         self.CRF.data[self.tag_map[config.STOP_TAG], :] = -1000
 
         self.hidden2tag = nn.Linear(config.hidden_dim, self.tag_size)
-        self.hidden = self.init_hidden()
+        self.hidden = self.init_hidden(self.this_batch_size)    # 模型初始化用这个
 
-    def init_hidden(self):
-        return (torch.randn(2 * config.num_layers, config.batch_size, config.hidden_dim // 2),
-                torch.randn(2 * config.num_layers, config.batch_size, config.hidden_dim // 2))
+    '''
+        初始化隐藏层
+        :param curr_batch_size 需要传参，当前batch的实际size，默认为config.batch_size
+    '''
+    def init_hidden(self, curr_batch_size=config.batch_size):
+        return (torch.randn(2 * config.num_layers, curr_batch_size, config.hidden_dim // 2),
+                torch.randn(2 * config.num_layers, curr_batch_size, config.hidden_dim // 2))
 
     def __get_lstm_features(self, sentence):
-        self.hidden = self.init_hidden()
-        curr_batch_size = sentence.shape[0]    # 当前batch实际读到的句子数
+        curr_batch_size = sentence.shape[0]  # 当前batch实际读到的句子数
+        self.hidden = self.init_hidden(curr_batch_size)    # 这里传入实际读到的batch数
+
         length = sentence.shape[1]    # 当前batch中句子的长度
         embeddings = self.word_embedding(sentence).view(curr_batch_size, length, config.embedding_dim)  # [batch_size, 7, 100]
 
